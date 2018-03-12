@@ -14,6 +14,8 @@ import asyncio
 
 from requests.auth import HTTPBasicAuth
 
+# TODO: Update a pmt, ensure no overwrite
+
 config = yaml.load(open('config.yml'))
 
 PATH = './uploaded_csvs/'
@@ -42,27 +44,52 @@ def get_invoiceID(number, fb_acct):
   else:
     return invoiceID[0]
 
-def update_payment(invoiceID, amt, pmt_type, notes):
-  xml_req = """<?xml version="1.0" encoding="utf-8"?>
-                <request method="payment.create">
+def update_payment(**data):
+  acct = data['fb_acct']
+  headers = { 'Content-Type': 'application/xml' }
+  # Check if payment exists
+  xmlreq_chk = """<?xml version="1.0" encoding="utf-8"?>
+                <request method="payment.list">
                   <payment>
-                    <invoice_id>""" + invoiceID + """</invoice_id>
-                    <amount>""" + amt + """</amount>
-                    <currency_code>CAD</currency_code>
-                    <type>""" + pmt_type + """</type>               
-                    <notes>""" + notes + """ added via script</notes>
+                    <invoice_id>""" + data['invid'] + """</invoice_id>
                   </payment>
                 </request>"""
-  headers = { 'Content-Type': 'application/xml' }
-  
-  resp = requests.get(
-    url=api_url,
-    auth=HTTPBasicAuth(token, 'X'),
-    data=xml_req,
+  resp_chk = requests.get(
+    url=config[f'{acct}']['API_URL'],
+    auth=HTTPBasicAuth(config[f'{acct}']['AUTH_TOKEN'], 'X'),
+    data=xmlreq_chk,
     headers=headers
   )
 
-  return resp.text
+  if resp_chk.status_code == 200:
+    if resp_chk.text.split('total="')[1][0] == '0':
+      return f"A payment for invoice #{data['invnmbr']} already exists, cannot overwrite"
+    else:
+    # Update payment
+      xmlreq_up = """<?xml version="1.0" encoding="utf-8"?>
+                    <request method="payment.create">
+                      <payment>
+                        <invoice_id>""" + data['invid'] + """</invoice_id>
+                        <date>""" + data['pmt_date'] + """</date>
+                        <amount>""" + data['amt'] + """</amount>
+                        <type>""" + data['pmt_type'] + """</type>          
+                        <notes>Updated via script</notes>
+                      </payment>
+                    </request>"""
+
+      resp_up = requests.get(
+        url=config[f'{acct}']['API_URL'],
+        auth=HTTPBasicAuth(config[f'{acct}']['AUTH_TOKEN'], 'X'),
+        data=xmlreq_up,
+        headers=headers
+      )
+
+      if resp_up.status_code == 200:
+        return f"Inv #{data['invid']} updated"
+      else:
+        return f"Could not update payment info for inv #{data['invid']}"
+  else:
+    return f"Could not update payment info for inv #{data['invid']}"
 
 for f in os.listdir(PATH):
   df = pd.read_csv(PATH + f)
@@ -71,7 +98,7 @@ for f in os.listdir(PATH):
   apijson = json.loads(apidf.to_json(orient='index'))
 
   invoices = []
-
+  status_log = []
   # Parse the invoice numbers from data entry
   for data in apijson.values():
     inv_entry = data['Payee or comment']
@@ -84,9 +111,20 @@ for f in os.listdir(PATH):
       invnmbr = (inv_entry.split('#'))[1][0:7].strip()
 
     invjson = {
+      'pmt_date': '20' + str(data['YY']) + '-' + str(data['MM']).zfill(2) + '-' + str(data['DD']).zfill(2),
       'invnmbr': invnmbr,
       'invid': get_invoiceID(invnmbr, fb_acct),
-      'fbacct': fb_acct
+      'fb_acct': fb_acct,
+      'amt': str(data['GL-$-Amt']),
+      'pmt_type': 'Check' if data['FundTy'] == 'chq' else 'Bank Transfer',
     }
 
     invoices.append(invjson)
+  
+  # pprint.pprint(invoices)
+
+  # Create payments for each invoice
+  for i in invoices:
+    status_log.append(update_payment(**i))
+  
+  # print(status_log)
