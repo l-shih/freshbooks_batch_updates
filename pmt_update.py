@@ -11,17 +11,19 @@ import pandas as pd
 import numpy as np
 import xml.etree.ElementTree as ET
 
+import pprint
+
 import asyncio
 
 from requests.auth import HTTPBasicAuth
 
 config = yaml.load(open('config.yml'))
-api_url = config['CLBC']['API_URL']
-token = config['CLBC']['AUTH_TOKEN']
+# api_url = config['CLBC']['API_URL']
+# token = config['CLBC']['AUTH_TOKEN']
 
 PATH = './uploaded_csvs/'
 
-def get_invoiceID(number):
+def get_invoiceID(number, fb_acct):
   invoiceID = []
   xml_req = """<!--?xml version="1.0" encoding="utf-8"?-->
                 <request method="invoice.list">
@@ -30,8 +32,8 @@ def get_invoiceID(number):
   headers = { 'Content-Type': 'application/xml' }
 
   resp = requests.get(
-    url=api_url,
-    auth=HTTPBasicAuth(token, 'X'),
+    url=config[f'{fb_acct}']['API_URL'],
+    auth=HTTPBasicAuth(config[f'{fb_acct}']['AUTH_TOKEN'], 'X'),
     data=xml_req,
     headers=headers
   )
@@ -41,9 +43,9 @@ def get_invoiceID(number):
     invoiceID.append(child.text)
 
   if len(invoiceID) != 1:
-    return 'Error: Check your invoice number'
+    return f'Error: Cannot find invoice #{number} from account {fb_acct}'
   else:
-    return invoiceID
+    return invoiceID[0]
 
 def update_payment(invoiceID, amt, pmt_type, notes):
   xml_req = """<?xml version="1.0" encoding="utf-8"?>
@@ -69,17 +71,34 @@ def update_payment(invoiceID, amt, pmt_type, notes):
 
 for f in os.listdir(PATH):
   df = pd.read_csv(PATH + f)
-  wantedcols = ['YY', 'MM', 'DD', 'Dep #', 'Payee or comment', 'FundTy', 'GL-$-Amt']
+  wantedcols = ['YY', 'MM', 'DD', 'Dep #', 'Payee or comment', 'FundTy', 'TYPE', 'GL-$-Amt']
   apidf = df[wantedcols].copy()
   apijson = json.loads(apidf.to_json(orient='index'))
 
-  inv_number = []
+  invoices = []
 
-  # Get the 
+  # Parse the invoice numbers from data entry
   for data in apijson.values():
-    nmbr = (data['Payee or comment'].split('#'))[1]
-    inv_number.append(get_invoiceID(nmbr[0:6]))
-  
-  print(inv_number)
+    inv_entry = data['Payee or comment']
+    inv_split = inv_entry.split('#')
+    fb_acct = data['TYPE']
 
-# THE SET UP BEFORE UPDATE
+    if inv_entry.count('#') > 1:
+      invnmbr = (f'{inv_split[1]}-#{inv_split[2]}').strip()
+    else:
+      invnmbr = (inv_entry.split('#'))[1][0:7].strip()
+
+    invjson = {
+      'invnmbr': invnmbr,
+      'invid': get_invoiceID(invnmbr, fb_acct),
+      'fbacct': fb_acct
+    }
+
+    invoices.append(invjson)
+  pprint.pprint(invoices)
+
+  # Get the invoice ID for each item in array
+  # invoiceIDs = []
+  # for i in invoices:
+  #   invoiceIDs.append(get_invoiceID(i['invnmbr'], i['fbacct']))
+
