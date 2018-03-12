@@ -1,8 +1,5 @@
 ## To update payments in batches
 
-## TODO: read a csv file to update invoices
-## TODO: allow multiple freshbooks accounts
-
 import os
 import yaml
 import json
@@ -18,8 +15,6 @@ import asyncio
 from requests.auth import HTTPBasicAuth
 
 config = yaml.load(open('config.yml'))
-# api_url = config['CLBC']['API_URL']
-# token = config['CLBC']['AUTH_TOKEN']
 
 PATH = './uploaded_csvs/'
 
@@ -95,10 +90,3 @@ for f in os.listdir(PATH):
     }
 
     invoices.append(invjson)
-  pprint.pprint(invoices)
-
-  # Get the invoice ID for each item in array
-  # invoiceIDs = []
-  # for i in invoices:
-  #   invoiceIDs.append(get_invoiceID(i['invnmbr'], i['fbacct']))
-
